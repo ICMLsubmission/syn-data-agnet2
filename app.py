@@ -597,12 +597,14 @@ def _clamp_float(x: float, lo: float, hi: float) -> float:
 def _clamp_int(x: int, lo: int, hi: int) -> int:
     return int(max(lo, min(hi, x)))
 
+
 def parse_prompt_with_hf(prompt: str) -> dict:
     hf_token = st.secrets.get("HF_TOKEN", None)
     if not hf_token:
         raise RuntimeError("Missing HF_TOKEN in Streamlit secrets.")
 
-    url = "https://api-inference.huggingface.co/v1/chat/completions"
+    # Updated endpoint (router API)
+    url = "https://router.huggingface.co/v1/chat/completions"
 
     headers = {
         "Authorization": f"Bearer {hf_token}",
@@ -628,7 +630,8 @@ output_mode=VALID
 """
 
     payload = {
-        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        # Explicit provider suffix required by router API
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct:groq",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -638,20 +641,29 @@ output_mode=VALID
     }
 
     r = requests.post(url, headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
-    data = r.json()
 
+    # Better debugging for auth / model / permission errors
+    if r.status_code != 200:
+        raise RuntimeError(f"HF error {r.status_code}: {r.text[:500]}")
+
+    data = r.json()
     text = data["choices"][0]["message"]["content"]
 
     m = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not m:
         raise ValueError(f"LLM did not return JSON. Raw: {text[:400]}")
+
     cfg = json.loads(m.group(0))
 
-    # Clamp & snap (same as before)
-    def snap(x, step): return round(x / step) * step
-    def clampf(x, lo, hi): return max(lo, min(hi, x))
-    def clampi(x, lo, hi): return max(lo, min(hi, x))
+    # ---- Clamp & snap ----
+    def snap(x, step): 
+        return round(x / step) * step
+
+    def clampf(x, lo, hi): 
+        return max(lo, min(hi, x))
+
+    def clampi(x, lo, hi): 
+        return max(lo, min(hi, x))
 
     n_subjects = int(snap(clampi(int(cfg.get("n_subjects", 100)), 10, 500), 10))
     n_sites = clampi(int(cfg.get("n_sites", 5)), 1, 50)
@@ -676,6 +688,7 @@ output_mode=VALID
         "missing_field_rate": missing_field_rate,
         "output_mode": output_mode,
     }
+
 def apply_prompt_to_sidebar(prompt: str):
     cfg = parse_prompt_with_hf(prompt)
 
