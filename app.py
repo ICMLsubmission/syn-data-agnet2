@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from faker import Faker
+import requests
+import re
 
 
 # ---------------------------
@@ -586,6 +588,127 @@ def make_zip_bytes(files: Dict[str, bytes]) -> bytes:
 # ---------------------------
 # Streamlit UI
 # ---------------------------
+def _snap(x: float, step: float) -> float:
+    return round(x / step) * step
+
+def _clamp_float(x: float, lo: float, hi: float) -> float:
+    return float(max(lo, min(hi, x)))
+
+def _clamp_int(x: int, lo: int, hi: int) -> int:
+    return int(max(lo, min(hi, x)))
+
+def parse_prompt_with_hf(prompt: str) -> dict:
+    """
+    Returns:
+      {
+        n_subjects, n_sites, severe_rate, ae_mean,
+        dropout_rate, missed_visit_rate, missing_field_rate,
+        output_mode
+      }
+    """
+    hf_token = st.secrets.get("HF_TOKEN", None)
+    hf_model = st.secrets.get("HF_MODEL", None)
+    if not hf_token or not hf_model:
+        raise RuntimeError("Missing HF_TOKEN or HF_MODEL in Streamlit secrets.")
+
+    system = (
+        "You are a config parser. Output ONLY valid JSON. "
+        "No markdown. No explanation."
+    )
+
+    user = f"""
+PROMPT:
+{prompt}
+
+Return JSON with EXACTLY these keys:
+n_subjects, n_sites, severe_rate, ae_mean, dropout_rate, missed_visit_rate, missing_field_rate, output_mode
+
+Interpretation rules:
+- n_subjects: integer number of patients (10-500, step 10)
+- n_sites: integer (1-50)
+- severe_rate: fraction (0-0.8). Example: '20% severe AE' => 0.2
+- ae_mean: mean AEs per subject (0-3)
+- dropout_rate: fraction (0-0.6)
+- missed_visit_rate: fraction (0-0.3)
+- missing_field_rate: fraction (0-0.2)
+- output_mode: VALID unless prompt explicitly asks to inject errors/invalid/violations, then INVALID.
+- If not specified, use defaults:
+  n_subjects=100, n_sites=5, severe_rate=0.2, ae_mean=0.6,
+  dropout_rate=0.1, missed_visit_rate=0.05, missing_field_rate=0.02, output_mode=VALID
+"""
+
+    url = f"https://api-inference.huggingface.co/models/{hf_model}"
+    headers = {"Authorization": f"Bearer {hf_token}"}
+    payload = {
+        "inputs": f"{system}\n\n{user}",
+        "parameters": {"max_new_tokens": 250, "return_full_text": False},
+    }
+
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+
+    # HF typically returns: [{"generated_text": "..."}]
+    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict) and "generated_text" in data[0]:
+        text = data[0]["generated_text"]
+    elif isinstance(data, dict) and "generated_text" in data:
+        text = data["generated_text"]
+    else:
+        text = str(data)
+
+    # Extract first JSON object
+    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not m:
+        raise ValueError(f"LLM did not return JSON. Raw output: {text[:400]}")
+    cfg = json.loads(m.group(0))
+
+    # Normalize + clamp to match your sidebar constraints
+    n_subjects = _clamp_int(int(cfg.get("n_subjects", 100)), 10, 500)
+    n_subjects = int(_snap(n_subjects, 10))
+
+    n_sites = _clamp_int(int(cfg.get("n_sites", 5)), 1, 50)
+
+    severe_rate = _clamp_float(float(cfg.get("severe_rate", 0.2)), 0.0, 0.8)
+    severe_rate = float(_snap(severe_rate, 0.05))
+
+    ae_mean = _clamp_float(float(cfg.get("ae_mean", 0.6)), 0.0, 3.0)
+    ae_mean = float(_snap(ae_mean, 0.1))
+
+    dropout_rate = _clamp_float(float(cfg.get("dropout_rate", 0.1)), 0.0, 0.6)
+    dropout_rate = float(_snap(dropout_rate, 0.05))
+
+    missed_visit_rate = _clamp_float(float(cfg.get("missed_visit_rate", 0.05)), 0.0, 0.3)
+    missed_visit_rate = float(_snap(missed_visit_rate, 0.05))
+
+    missing_field_rate = _clamp_float(float(cfg.get("missing_field_rate", 0.02)), 0.0, 0.2)
+    missing_field_rate = float(_snap(missing_field_rate, 0.02))
+
+    om = str(cfg.get("output_mode", "VALID")).upper().strip()
+    output_mode = "INVALID" if om == "INVALID" else "VALID"
+
+    return {
+        "n_subjects": n_subjects,
+        "n_sites": n_sites,
+        "severe_rate": severe_rate,
+        "ae_mean": ae_mean,
+        "dropout_rate": dropout_rate,
+        "missed_visit_rate": missed_visit_rate,
+        "missing_field_rate": missing_field_rate,
+        "output_mode": output_mode,
+    }
+
+def apply_prompt_to_sidebar(prompt: str):
+    cfg = parse_prompt_with_hf(prompt)
+
+    st.session_state["n_subjects"] = cfg["n_subjects"]
+    st.session_state["n_sites"] = cfg["n_sites"]
+    st.session_state["severe_rate"] = cfg["severe_rate"]
+    st.session_state["ae_mean"] = cfg["ae_mean"]
+    st.session_state["dropout_rate"] = cfg["dropout_rate"]
+    st.session_state["missed_visit_rate"] = cfg["missed_visit_rate"]
+    st.session_state["missing_field_rate"] = cfg["missing_field_rate"]
+    st.session_state["output_mode"] = cfg["output_mode"]
+
 
 st.set_page_config(page_title="Synthetic EDC Data Generator (v1.2)", layout="wide")
 st.title("Synthetic EDC Data Generator (v1.2)")
@@ -636,6 +759,15 @@ prompt = st.text_area(
     ),
     height=120,
 )
+
+btn_col, _ = st.columns([1, 4])
+if btn_col.button("Apply prompt (LLM)"):
+    try:
+        apply_prompt_to_sidebar(prompt)
+        st.rerun()
+    except Exception as e:
+        st.error(f"Prompt parse failed: {e}")
+
 
 colA, colB = st.columns([1, 1])
 
