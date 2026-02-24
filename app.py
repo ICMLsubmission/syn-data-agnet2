@@ -653,10 +653,18 @@ Example output (format exactly like this, but with extracted values):
     if not choices:
         raise RuntimeError(f"HF returned no choices. Raw response: {json.dumps(data)[:1200]}")
 
-    text = (choices[0].get("message", {}).get("content") or "").strip()
+
+
+    msg = choices[0].get("message", {}) or {}
+    text = (msg.get("content") or "").strip()
+    
+    # Some providers return content in `reasoning` and leave `content` empty
+    if not text:
+        text = (msg.get("reasoning") or "").strip()
+    
     if not text:
         raise RuntimeError(f"Empty model content. Raw response: {json.dumps(data)[:1200]}")
-
+        
     # Parse JSON strictly, then fallback
     try:
         cfg = json.loads(text)
