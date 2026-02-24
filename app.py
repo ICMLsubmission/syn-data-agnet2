@@ -610,7 +610,8 @@ def parse_prompt_with_hf(prompt: str) -> dict:
 
     system = (
         "You are a config parser. "
-        "Return ONLY a JSON object. "
+        "Return ONLY a JSON object with exactly these keys: "
+        "n_subjects, n_sites, severe_rate, ae_mean, dropout_rate, missed_visit_rate, missing_field_rate, output_mode. "
         "No markdown, no code fences, no extra text."
     )
 
@@ -619,54 +620,62 @@ Extract configuration from this prompt:
 
 {prompt}
 
-Return a JSON object with exactly these keys:
-n_subjects, n_sites, severe_rate, ae_mean,
-dropout_rate, missed_visit_rate, missing_field_rate, output_mode
-
 Defaults:
 n_subjects=100, n_sites=5, severe_rate=0.2,
 ae_mean=0.6, dropout_rate=0.1,
 missed_visit_rate=0.05, missing_field_rate=0.02,
 output_mode=VALID
 
-Example output (format exactly like this, but with extracted values):
+Return ONLY JSON. Start with {{ and end with }}.
+Example:
 {{"n_subjects":100,"n_sites":5,"severe_rate":0.2,"ae_mean":0.6,"dropout_rate":0.1,"missed_visit_rate":0.05,"missing_field_rate":0.02,"output_mode":"VALID"}}
 """.strip()
 
-    payload = {
-    "model": "mistralai/Mistral-Nemo-Instruct-2407:mistral",
+    # Use HF Inference provider (stable) per HF docs
+    base_payload = {
+        "model": "HuggingFaceTB/SmolLM3-3B:hf-inference",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         "temperature": 0,
         "max_tokens": 300,
-        "response_format": {"type": "json_object"},
     }
-  
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
 
-    if r.status_code != 200:
-        raise RuntimeError(f"HF error {r.status_code}: {r.text[:800]}")
+    def call(payload):
+        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        # If JSON-mode validation fails, retry without response_format
+        if r.status_code == 400 and "json_validate_failed" in r.text:
+            return None, r.text
+        if r.status_code != 200:
+            raise RuntimeError(f"HF error {r.status_code}: {r.text[:800]}")
+        return r.json(), None
 
-    data = r.json()
-    choices = data.get("choices", [])
+    # 1) Try strict JSON mode first (if supported)
+    payload = dict(base_payload)
+    payload["response_format"] = {"type": "json_object"}
+    data, json_mode_err = call(payload)
+
+    # 2) If provider rejected strict JSON mode, retry without it
+    if data is None:
+        payload = dict(base_payload)
+        data, _ = call(payload)
+
+    choices = (data or {}).get("choices", [])
     if not choices:
         raise RuntimeError(f"HF returned no choices. Raw response: {json.dumps(data)[:1200]}")
 
-
-
     msg = choices[0].get("message", {}) or {}
+
+    # Prefer content; some providers might put text elsewhere
     text = (msg.get("content") or "").strip()
-    
-    # Some providers return content in `reasoning` and leave `content` empty
     if not text:
         text = (msg.get("reasoning") or "").strip()
-    
+
     if not text:
         raise RuntimeError(f"Empty model content. Raw response: {json.dumps(data)[:1200]}")
-        
-    # Parse JSON strictly, then fallback
+
+    # Parse JSON strictly; fallback to extracting first {...}
     try:
         cfg = json.loads(text)
     except json.JSONDecodeError:
