@@ -603,22 +603,24 @@ def parse_prompt_with_hf(prompt: str) -> dict:
     if not hf_token:
         raise RuntimeError("Missing HF_TOKEN in Streamlit secrets.")
 
-    # Updated endpoint (router API)
     url = "https://router.huggingface.co/v1/chat/completions"
-
     headers = {
         "Authorization": f"Bearer {hf_token}",
         "Content-Type": "application/json",
     }
 
-    system = "You are a config parser. Return ONLY valid JSON."
+    system = (
+        "You are a config parser. "
+        "Return ONLY a valid JSON object. "
+        "No markdown, no code fences, no commentary."
+    )
 
     user = f"""
 Extract configuration from this prompt:
 
 {prompt}
 
-Return JSON with exactly:
+Return a JSON object with exactly these keys:
 n_subjects, n_sites, severe_rate, ae_mean,
 dropout_rate, missed_visit_rate, missing_field_rate, output_mode
 
@@ -627,41 +629,55 @@ n_subjects=100, n_sites=5, severe_rate=0.2,
 ae_mean=0.6, dropout_rate=0.1,
 missed_visit_rate=0.05, missing_field_rate=0.02,
 output_mode=VALID
-"""
+""".strip()
+
     payload = {
+        # Non-gated model through Groq provider (avoid Llama gating issues)
         "model": "openai/gpt-oss-20b:groq",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "max_tokens": 300,
         "temperature": 0,
+        "max_tokens": 300,
+
+        # Try to force strict JSON (OpenAI-compatible); if provider rejects this,
+        # you'll get a clear 400 and we can remove it.
+        "response_format": {"type": "json_object"},
     }
 
     r = requests.post(url, headers=headers, json=payload, timeout=60)
 
-    # Better debugging for auth / model / permission errors
     if r.status_code != 200:
-        raise RuntimeError(f"HF error {r.status_code}: {r.text[:500]}")
+        raise RuntimeError(f"HF error {r.status_code}: {r.text[:800]}")
 
     data = r.json()
-    text = data["choices"][0]["message"]["content"]
 
-    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not m:
-        raise ValueError(f"LLM did not return JSON. Raw: {text[:400]}")
+    # Robust extraction / debugging
+    choices = data.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"HF returned no choices. Raw response: {json.dumps(data)[:1200]}")
 
-    cfg = json.loads(m.group(0))
+    msg = choices[0].get("message", {})
+    text = (msg.get("content") or "").strip()
+
+    if not text:
+        raise RuntimeError(f"Empty model content. Raw response: {json.dumps(data)[:1200]}")
+
+    # If response_format worked, this should already be JSON. Still guard:
+    try:
+        cfg = json.loads(text)
+    except json.JSONDecodeError:
+        # Fallback: extract first JSON object from noisy text
+        m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not m:
+            raise ValueError(f"LLM did not return JSON. Raw: {text[:800]}")
+        cfg = json.loads(m.group(0))
 
     # ---- Clamp & snap ----
-    def snap(x, step): 
-        return round(x / step) * step
-
-    def clampf(x, lo, hi): 
-        return max(lo, min(hi, x))
-
-    def clampi(x, lo, hi): 
-        return max(lo, min(hi, x))
+    def snap(x, step): return round(x / step) * step
+    def clampf(x, lo, hi): return max(lo, min(hi, x))
+    def clampi(x, lo, hi): return max(lo, min(hi, x))
 
     n_subjects = int(snap(clampi(int(cfg.get("n_subjects", 100)), 10, 500), 10))
     n_sites = clampi(int(cfg.get("n_sites", 5)), 1, 50)
@@ -686,6 +702,7 @@ output_mode=VALID
         "missing_field_rate": missing_field_rate,
         "output_mode": output_mode,
     }
+
 
 def apply_prompt_to_sidebar(prompt: str):
     cfg = parse_prompt_with_hf(prompt)
