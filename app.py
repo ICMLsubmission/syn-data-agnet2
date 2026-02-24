@@ -738,7 +738,7 @@ if "_pending_cfg" in st.session_state:
         st.session_state[k] = cfg[k]
         
 st.title("Synthetic EDC Data Generator (v1.2)")
-st.caption("v1.2: Dropout + missed visits + missing fields + INVALID mode (intentional violations). No LLM prompt parsing yet.")
+#st.caption("v1.2: Dropout + missed visits + missing fields + INVALID mode (intentional violations). No LLM prompt parsing yet.")
 
 with st.sidebar:
     st.header("Controls")
@@ -762,7 +762,7 @@ with st.sidebar:
     seed = st.number_input("Seed", min_value=0, max_value=10_000_000, step=1, key="seed")
 
     n_subjects = st.slider("Number of subjects", min_value=10, max_value=500, step=10, key="n_subjects")
-    n_sites = st.slider("Number of sites", min_value=1, max_value=50, step=1, key="n_sites")
+    n_sites = st.slider("Number of visits", min_value=1, max_value=12, step=1, key="n_sites")
 
     severe_rate = st.slider("Severe AE rate (among AEs)", min_value=0.0, max_value=0.8, step=0.05, key="severe_rate")
     ae_mean = st.slider("Mean AEs per subject (Poisson)", min_value=0.0, max_value=3.0, step=0.1, key="ae_mean")
@@ -887,12 +887,19 @@ if colA.button("Generate dataset", type="primary"):
     zip_bytes = make_zip_bytes(files)
 
     st.success("Generated.")
-    if issues:
+        
+    if output_mode == "INVALID" and issues:
         st.warning("Validation issues found (expected in INVALID mode):")
         for it in issues:
             st.write(f"- {it}")
-    else:
-        st.info("Validation passed (basic checks).")
+    
+    elif output_mode == "VALID" and issues:
+        st.error("Validation issues found (should not happen in VALID mode):")
+        for it in issues:
+            st.write(f"- {it}")
+    
+    elif output_mode == "VALID" and not issues:
+        st.success("Validation passed.")
 
     st.download_button(
         "Download ZIP (CSVs + manifest)",
