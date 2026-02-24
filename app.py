@@ -597,7 +597,6 @@ def _clamp_float(x: float, lo: float, hi: float) -> float:
 def _clamp_int(x: int, lo: int, hi: int) -> int:
     return int(max(lo, min(hi, x)))
 
-
 def parse_prompt_with_hf(prompt: str) -> dict:
     hf_token = st.secrets.get("HF_TOKEN", None)
     if not hf_token:
@@ -611,8 +610,8 @@ def parse_prompt_with_hf(prompt: str) -> dict:
 
     system = (
         "You are a config parser. "
-        "Return ONLY a valid JSON object. "
-        "No markdown, no code fences, no commentary."
+        "Return ONLY a JSON object. "
+        "No markdown, no code fences, no extra text."
     )
 
     user = f"""
@@ -629,10 +628,12 @@ n_subjects=100, n_sites=5, severe_rate=0.2,
 ae_mean=0.6, dropout_rate=0.1,
 missed_visit_rate=0.05, missing_field_rate=0.02,
 output_mode=VALID
+
+Example output (format exactly like this, but with extracted values):
+{{"n_subjects":100,"n_sites":5,"severe_rate":0.2,"ae_mean":0.6,"dropout_rate":0.1,"missed_visit_rate":0.05,"missing_field_rate":0.02,"output_mode":"VALID"}}
 """.strip()
 
     payload = {
-        # Non-gated model through Groq provider (avoid Llama gating issues)
         "model": "openai/gpt-oss-20b:groq",
         "messages": [
             {"role": "system", "content": system},
@@ -640,10 +641,6 @@ output_mode=VALID
         ],
         "temperature": 0,
         "max_tokens": 300,
-
-        # Try to force strict JSON (OpenAI-compatible); if provider rejects this,
-        # you'll get a clear 400 and we can remove it.
-        "response_format": {"type": "json_object"},
     }
 
     r = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -652,23 +649,18 @@ output_mode=VALID
         raise RuntimeError(f"HF error {r.status_code}: {r.text[:800]}")
 
     data = r.json()
-
-    # Robust extraction / debugging
     choices = data.get("choices", [])
     if not choices:
         raise RuntimeError(f"HF returned no choices. Raw response: {json.dumps(data)[:1200]}")
 
-    msg = choices[0].get("message", {})
-    text = (msg.get("content") or "").strip()
-
+    text = (choices[0].get("message", {}).get("content") or "").strip()
     if not text:
         raise RuntimeError(f"Empty model content. Raw response: {json.dumps(data)[:1200]}")
 
-    # If response_format worked, this should already be JSON. Still guard:
+    # Parse JSON strictly, then fallback
     try:
         cfg = json.loads(text)
     except json.JSONDecodeError:
-        # Fallback: extract first JSON object from noisy text
         m = re.search(r"\{.*\}", text, flags=re.DOTALL)
         if not m:
             raise ValueError(f"LLM did not return JSON. Raw: {text[:800]}")
@@ -702,7 +694,6 @@ output_mode=VALID
         "missing_field_rate": missing_field_rate,
         "output_mode": output_mode,
     }
-
 
 def apply_prompt_to_sidebar(prompt: str):
     cfg = parse_prompt_with_hf(prompt)
