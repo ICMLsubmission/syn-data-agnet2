@@ -631,7 +631,7 @@ output_mode=VALID
 
     payload = {
         # Explicit provider suffix required by router API
-        "model": "meta-llama/Meta-Llama-3-8B-Instruct:groq",
+        "model": "llama-3.1-8b-instant:groq",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
