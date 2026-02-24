@@ -786,7 +786,7 @@ prompt = st.text_area(
     value=(
         "You are a synthetic data generator agent for clinical trial EDC system. "
         "Generate 100 patients across treatment and placebo cohort for rheumatoid arthritis phase 2 trial, "
-        "across 5 visit (baseline, 2 weeks, 4, 6, 8) along with demography, medical history (static) and "
+        "across 5 sites for 4 visits (baseline,  week 2, week 4, week 6, week 8) along with demography, medical history (static) and "
         "labs, vitals and adverse events (20% chance of severe AE) longitudinally."
     ),
     height=120,
