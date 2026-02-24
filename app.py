@@ -629,7 +629,7 @@ missed_visit_rate=0.05, missing_field_rate=0.02,
 output_mode=VALID
 """
     payload = {
-        "model": "openai/gpt-oss-20b:groq",,
+        "model": "openai/gpt-oss-20b:groq",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
