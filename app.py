@@ -594,21 +594,38 @@ st.caption("v1.2: Dropout + missed visits + missing fields + INVALID mode (inten
 with st.sidebar:
     st.header("Controls")
 
-    seed = st.number_input("Seed", min_value=0, max_value=10_000_000, value=42, step=1)
-    n_subjects = st.slider("Number of subjects", min_value=10, max_value=500, value=100, step=10)
-    n_sites = st.slider("Number of sites", min_value=1, max_value=50, value=5, step=1)
+    # Initialize defaults once
+    defaults = {
+        "seed": 42,
+        "n_subjects": 100,
+        "n_sites": 5,
+        "severe_rate": 0.20,
+        "ae_mean": 0.6,
+        "dropout_rate": 0.10,
+        "missed_visit_rate": 0.05,
+        "missing_field_rate": 0.02,
+        "output_mode": "VALID",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-    severe_rate = st.slider("Severe AE rate (among AEs)", min_value=0.0, max_value=0.8, value=0.20, step=0.05)
-    ae_mean = st.slider("Mean AEs per subject (Poisson)", min_value=0.0, max_value=3.0, value=0.6, step=0.1)
+    seed = st.number_input("Seed", min_value=0, max_value=10_000_000, step=1, key="seed")
+
+    n_subjects = st.slider("Number of subjects", min_value=10, max_value=500, step=10, key="n_subjects")
+    n_sites = st.slider("Number of sites", min_value=1, max_value=50, step=1, key="n_sites")
+
+    severe_rate = st.slider("Severe AE rate (among AEs)", min_value=0.0, max_value=0.8, step=0.05, key="severe_rate")
+    ae_mean = st.slider("Mean AEs per subject (Poisson)", min_value=0.0, max_value=3.0, step=0.1, key="ae_mean")
 
     st.subheader("Scenario knobs")
-    dropout_rate = st.slider("Dropout rate", 0.0, 0.6, value=0.10, step=0.05)
-    missed_visit_rate = st.slider("Missed visit rate (per scheduled visit)", 0.0, 0.3, value=0.05, step=0.05)
-    missing_field_rate = st.slider("Missing field rate (non-key cells)", 0.0, 0.2, value=0.02, step=0.02)
+    dropout_rate = st.slider("Dropout rate", min_value=0.0, max_value=0.6, step=0.05, key="dropout_rate")
+    missed_visit_rate = st.slider("Missed visit rate (per scheduled visit)", min_value=0.0, max_value=0.3, step=0.05, key="missed_visit_rate")
+    missing_field_rate = st.slider("Missing field rate (non-key cells)", min_value=0.0, max_value=0.2, step=0.02, key="missing_field_rate")
 
     st.subheader("Output mode")
-    output_mode = st.radio("Generate", options=["VALID", "INVALID"], index=0, horizontal=True)
-
+    output_mode = st.radio("Generate", options=["VALID", "INVALID"], index=0, horizontal=True, key="output_mode")
+    
 prompt = st.text_area(
     "Prompt (stored in manifest; ignored by v1.2 generator)",
     value=(
