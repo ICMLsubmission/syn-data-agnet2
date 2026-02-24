@@ -628,10 +628,8 @@ ae_mean=0.6, dropout_rate=0.1,
 missed_visit_rate=0.05, missing_field_rate=0.02,
 output_mode=VALID
 """
-
     payload = {
-        # Explicit provider suffix required by router API
-        "model": "llama-3.1-8b-instant:groq",
+        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct:groq",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
