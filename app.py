@@ -718,6 +718,16 @@ def apply_prompt_to_sidebar(prompt: str):
 
 
 st.set_page_config(page_title="Synthetic EDC Data Generator (v1.2)", layout="wide")
+# --- APPLY PENDING LLM CONFIG (MUST RUN BEFORE WIDGETS ARE CREATED) ---
+if "_pending_cfg" in st.session_state:
+    cfg = st.session_state.pop("_pending_cfg")
+
+    for k in [
+        "n_subjects", "n_sites", "severe_rate", "ae_mean",
+        "dropout_rate", "missed_visit_rate", "missing_field_rate", "output_mode"
+    ]:
+        st.session_state[k] = cfg[k]
+        
 st.title("Synthetic EDC Data Generator (v1.2)")
 st.caption("v1.2: Dropout + missed visits + missing fields + INVALID mode (intentional violations). No LLM prompt parsing yet.")
 
@@ -754,7 +764,13 @@ with st.sidebar:
     missing_field_rate = st.slider("Missing field rate (non-key cells)", min_value=0.0, max_value=0.2, step=0.02, key="missing_field_rate")
 
     st.subheader("Output mode")
-    output_mode = st.radio("Generate", options=["VALID", "INVALID"], index=0, horizontal=True, key="output_mode")
+    output_mode = st.radio(
+        "Generate",
+        options=["VALID", "INVALID"],
+        index=0 if st.session_state.get("output_mode", "VALID") == "VALID" else 1,
+        horizontal=True,
+        key="output_mode",
+    )
     
 prompt = st.text_area(
     "Prompt (stored in manifest; ignored by v1.2 generator)",
@@ -767,11 +783,15 @@ prompt = st.text_area(
     height=120,
 )
 
+def apply_prompt_to_sidebar(prompt: str):
+    cfg = parse_prompt_with_hf(prompt)   # returns the dict with the 8 keys
+    st.session_state["_pending_cfg"] = cfg
+    st.rerun()
+
 btn_col, _ = st.columns([1, 4])
 if btn_col.button("Apply prompt (LLM)"):
     try:
-        apply_prompt_to_sidebar(prompt)
-        st.rerun()
+        apply_prompt_to_sidebar(prompt)  # this will st.rerun() internally
     except Exception as e:
         st.error(f"Prompt parse failed: {e}")
 
