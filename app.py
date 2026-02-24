@@ -634,15 +634,16 @@ Example output (format exactly like this, but with extracted values):
 """.strip()
 
     payload = {
-        "model": "openai/gpt-oss-20b:groq",
+    "model": "mistralai/Mistral-Nemo-Instruct-2407:mistral",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         "temperature": 0,
         "max_tokens": 300,
+        "response_format": {"type": "json_object"},
     }
-
+  
     r = requests.post(url, headers=headers, json=payload, timeout=60)
 
     if r.status_code != 200:
