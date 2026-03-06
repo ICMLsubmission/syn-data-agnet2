@@ -649,8 +649,7 @@ if colA.button("Generate dataset", type="primary"):
     mh = apply_missingness(mh, key_cols=["STUDYID", "USUBJID", "MHID"], missing_field_rate=float(missing_field_rate))
     vs = apply_missingness(vs, key_cols=["STUDYID", "USUBJID", "VISIT", "VISITNUM", "VISITDT"], missing_field_rate=float(missing_field_rate))
     lb = apply_missingness(lb, key_cols=["STUDYID", "USUBJID", "VISIT", "VISITNUM", "VISITDT"], missing_field_rate=float(missing_field_rate))
-    ae = apply_missingness(ae, key_cols=["STUDYID", "USUBJID", "AEID", "AESTDTC", "AEENDTC"], missing_field_rate=float(missing_field_rate))
-
+    ae = apply_missingness(ae,key_cols=["STUDYID", "USUBJID", "AEID", "AESTDTC", "AEENDTC", "AESEV", "AESER"],missing_field_rate=float(missing_field_rate),)
     violations_df = pd.DataFrame(columns=["violation_id", "table", "rule", "row_hint"])
     if output_mode == "INVALID":
         dm, mh, vs, lb, ae, violations_df = inject_invalid_violations(cfg, dm, mh, vs, lb, ae)
